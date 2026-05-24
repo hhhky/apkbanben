@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#4f46e5">
+  <title>复习资料管理</title>
+  <script src="js/tailwind.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: { 50: '#eef2ff', 100: '#e0e7ff', 200: '#c7d2fe', 500: '#6366f1', 600: '#4f46e5', 700: '#4338ca' }
+          }
+        }
+      }
+    }
+  </script>
+  <script src="js/pdf.min.js"></script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; }
+    body { overscroll-behavior: none; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .bottom-nav { padding-bottom: env(safe-area-inset-bottom, 8px); }
+    .toast { animation: slideUp 0.3s ease; z-index: 99999; }
+    @keyframes slideUp { from { transform: translateY(100px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .preview-overlay { z-index: 9999; }
+    .cat-color { width: 12px; height: 12px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+    /* Mobile: main content leaves room for bottom nav */
+    @media (max-width: 767px) {
+      .main-content { padding-bottom: calc(80px + env(safe-area-inset-bottom, 0px)); }
+    }
+
+    /* Tablet + Desktop: no bottom nav, clean padding */
+    @media (min-width: 768px) {
+      .main-content { padding-bottom: 1.5rem; }
+      .modal-sheet { align-items: center; }
+      .modal-sheet > div { max-width: 420px; border-radius: 1rem; }
+    }
+  </style>
+</head>
+<body class="bg-gray-100">
+
+  <div id="app" class="flex flex-col h-screen bg-gray-50 overflow-hidden md:max-w-none">
+
+    <!-- Header -->
+    <header class="bg-primary-600 text-white px-5 py-4 flex items-center justify-between shrink-0" style="padding-top: calc(1rem + env(safe-area-inset-top, 0px));">
+      <h1 class="text-lg font-semibold tracking-wide" id="header-title">复习资料</h1>
+      <span class="text-xs bg-white/20 px-2 py-1 rounded-full" id="file-count-badge">0 份资料</span>
+    </header>
+
+    <!-- Body: Sidebar + Main -->
+    <div class="flex flex-1 overflow-hidden">
+
+      <!-- Sidebar (hidden on mobile, visible tablet+) -->
+      <aside class="hidden md:flex md:flex-col w-48 lg:w-56 bg-white border-r border-gray-100 shrink-0">
+        <nav class="flex flex-col p-3 gap-1 flex-1" id="sidebar-nav">
+          <button onclick="switchTab('categories')" class="sidebar-tab flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-primary-500 bg-primary-50 active:scale-95 transition-transform" data-tab="categories">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+            <span class="hidden lg:inline">分类管理</span>
+          </button>
+          <button onclick="switchTab('files')" class="sidebar-tab flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 active:scale-95 transition-transform" data-tab="files">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+            <span class="hidden lg:inline">资料列表</span>
+          </button>
+          <button onclick="switchTab('upload')" class="sidebar-tab flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-50 active:scale-95 transition-transform" data-tab="upload">
+            <svg class="w-5 h-5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+            <span class="hidden lg:inline">上传资料</span>
+          </button>
+        </nav>
+        <div class="p-3 border-t border-gray-100">
+          <span class="text-xs text-gray-400" id="sidebar-file-count">共 0 份资料</span>
+        </div>
+      </aside>
+
+      <!-- Main Content -->
+      <main class="flex-1 overflow-y-auto main-content" id="main-content">
+
+        <!-- Categories Page -->
+        <div id="page-categories" class="page active p-4 md:p-6 lg:p-8">
+          <div class="flex items-center justify-between mb-4 md:mb-6">
+            <h2 class="text-base md:text-lg font-semibold text-gray-700">分类管理</h2>
+            <button onclick="showAddCategory()" class="bg-primary-500 text-white text-sm px-4 py-2 rounded-full font-medium active:scale-95 transition-transform hover:bg-primary-600">＋ 新建分类</button>
+          </div>
+          <div id="categories-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            <div class="text-center text-gray-400 py-12 text-sm col-span-full">还没有分类，点击上方按钮创建</div>
+          </div>
+        </div>
+
+        <!-- Files Page -->
+        <div id="page-files" class="page p-4 md:p-6 lg:p-8">
+          <div class="flex flex-col sm:flex-row sm:items-center gap-3 mb-4 md:mb-6">
+            <div class="flex gap-2 overflow-x-auto pb-2 sm:pb-0 flex-1" id="category-filter-bar">
+              <button onclick="filterFiles(null)" class="cat-filter-btn shrink-0 px-4 py-1.5 rounded-full text-sm font-medium bg-primary-500 text-white active:scale-95 transition-transform" data-cat="all">全部</button>
+            </div>
+            <input type="text" id="file-search" oninput="renderFiles()" placeholder="搜索文件名..." class="w-full sm:w-48 lg:w-64 text-sm bg-white border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-primary-500 shrink-0">
+          </div>
+          <div id="files-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-2">
+            <div class="text-center text-gray-400 py-12 text-sm col-span-full">还没有上传资料</div>
+          </div>
+        </div>
+
+        <!-- Upload Page -->
+        <div id="page-upload" class="page p-4 md:p-6 lg:p-8">
+          <div class="flex flex-col lg:flex-row gap-5 lg:gap-8">
+            <!-- Left: File selection -->
+            <div class="flex-1">
+              <label for="file-input" class="bg-white rounded-2xl p-6 md:p-8 text-center border-2 border-dashed border-gray-300 mb-5 block cursor-pointer active:bg-gray-50 hover:border-primary-400 transition-colors">
+                <input type="file" id="file-input" accept=".pdf,image/*" onchange="onFileSelected(this)" class="hidden">
+                <div class="text-4xl md:text-5xl mb-3">📤</div>
+                <p class="text-gray-500 text-sm md:text-base">点击选择文件</p>
+                <p class="text-gray-300 text-xs mt-1">支持 PDF、图片格式</p>
+              </label>
+              <div id="selected-file-info" class="hidden bg-white rounded-xl p-4 mb-5">
+                <div class="flex items-center gap-3">
+                  <span class="text-2xl" id="selected-file-icon">📄</span>
+                  <div class="flex-1 min-w-0">
+                    <p class="text-sm font-medium text-gray-700 truncate" id="selected-file-name"></p>
+                    <p class="text-xs text-gray-400" id="selected-file-size"></p>
+                  </div>
+                  <button onclick="clearSelectedFile()" class="text-gray-300 hover:text-red-400 text-xl leading-none">&times;</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Category + Upload button -->
+            <div class="lg:w-72 xl:w-80 shrink-0">
+              <label class="block text-sm font-medium text-gray-600 mb-2">选择分类</label>
+              <div id="upload-category-list" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-1 gap-2 mb-5">
+                <div class="text-center text-gray-400 py-4 text-sm col-span-full">请先创建分类</div>
+              </div>
+              <button id="upload-btn" onclick="uploadFile()" disabled class="w-full py-3 rounded-xl font-semibold text-white bg-gray-300 transition-colors text-sm disabled:opacity-50">
+                上传资料
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+
+    <!-- Bottom Navigation (mobile only) -->
+    <nav class="bottom-nav md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-100 flex justify-around py-2 z-50">
+      <button onclick="switchTab('categories')" class="nav-tab flex flex-col items-center gap-0.5 text-primary-500 active:scale-95 transition-transform" data-tab="categories">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/></svg>
+        <span class="text-xs">分类</span>
+      </button>
+      <button onclick="switchTab('files')" class="nav-tab flex flex-col items-center gap-0.5 text-gray-400 active:scale-95 transition-transform" data-tab="files">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+        <span class="text-xs">资料</span>
+      </button>
+      <button onclick="switchTab('upload')" class="nav-tab flex flex-col items-center gap-0.5 text-gray-400 active:scale-95 transition-transform" data-tab="upload">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+        <span class="text-xs">上传</span>
+      </button>
+    </nav>
+
+    <!-- Preview Overlay -->
+    <div id="preview-overlay" class="preview-overlay fixed inset-0 bg-black hidden flex flex-col" style="z-index:9999">
+      <div class="flex items-center justify-between px-4 py-3 text-white shrink-0" style="padding-top: calc(0.75rem + env(safe-area-inset-top, 0px));">
+        <button onclick="closePreview()" class="text-white active:scale-90 transition-transform">
+          <svg class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+        <span class="text-sm font-medium truncate mx-2" id="preview-title"></span>
+        <button onclick="deletePreviewFile()" class="text-red-400 active:scale-90 transition-transform">
+          <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+        </button>
+      </div>
+      <div class="flex-1 overflow-auto flex items-center justify-center p-2 md:p-8" id="preview-content" ontouchstart="onPreviewTouchStart(event)" ontouchmove="onPreviewTouchMove(event)" ontouchend="onPreviewTouchEnd(event)">
+        <div class="text-white text-center text-sm">加载中...</div>
+      </div>
+      <div id="preview-controls" class="hidden flex items-center justify-center gap-2 py-3 px-3 text-white bg-black/50 shrink-0 flex-wrap" style="padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));">
+        <button onclick="prevPdfPage()" id="btn-prev-page" class="active:scale-90 transition-transform p-2 hidden"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/></svg></button>
+        <span class="text-sm min-w-[3rem] text-center" id="pdf-page-indicator" style="display:none">1/1</span>
+        <button onclick="nextPdfPage()" id="btn-next-page" class="active:scale-90 transition-transform p-2 hidden"><svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></button>
+        <span class="text-white/20 mx-1" id="ctl-sep" style="display:none">|</span>
+        <button onclick="zoomOut()" class="active:scale-90 transition-transform p-2 text-lg font-bold leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">−</button>
+        <span class="text-sm min-w-[3rem] text-center" id="zoom-indicator">100%</span>
+        <button onclick="zoomIn()" class="active:scale-90 transition-transform p-2 text-lg font-bold leading-none w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/10">+</button>
+        <button onclick="resetZoom()" class="active:scale-90 transition-transform px-2 py-1 text-xs opacity-60 hover:opacity-100 rounded">重置</button>
+      </div>
+    </div>
+
+    <!-- Category Modal -->
+    <div id="category-modal" class="fixed inset-0 bg-black/40 hidden flex items-end md:items-center justify-center modal-sheet" style="z-index:9998">
+      <div class="bg-white rounded-t-2xl md:rounded-2xl w-full md:max-w-md p-5" style="padding-bottom: calc(1.25rem + env(safe-area-inset-bottom, 0px));">
+        <h3 class="text-lg font-semibold text-gray-800 mb-4">新建分类</h3>
+        <input type="text" id="new-cat-name" placeholder="分类名称，如：英语、政治" class="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm mb-4 focus:outline-none focus:border-primary-500">
+        <label class="block text-sm text-gray-600 mb-2">选择颜色</label>
+        <div class="flex gap-3 mb-5 flex-wrap" id="color-picker"></div>
+        <div class="flex gap-3">
+          <button onclick="hideCategoryModal()" class="flex-1 py-3 rounded-xl font-medium text-gray-500 bg-gray-100 text-sm">取消</button>
+          <button onclick="confirmAddCategory()" class="flex-1 py-3 rounded-xl font-medium text-white bg-primary-500 text-sm active:scale-95 transition-transform">确认创建</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed top-20 left-1/2 -translate-x-1/2 bg-gray-800 text-white px-5 py-2.5 rounded-full text-sm hidden toast shadow-lg"></div>
+
+  </div>
+
+  <script src="js/db.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
